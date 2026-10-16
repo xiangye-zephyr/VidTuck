@@ -17,7 +17,7 @@
 
 已内置 yt-dlp、Deno 和 FFmpeg。使用时无需安装 Codex、Python、Node、Homebrew，也无需运行服务器。
 
-**首次打开：**当前版本只有临时签名，未做 Developer ID 签名和苹果公证，macOS 可能阻止首次启动。确认来源与校验值后，请按[苹果官方说明](https://support.apple.com/zh-cn/102445)到「系统设置 → 隐私与安全」检查是否提供「仍要打开」。不要关闭系统安全保护。目前只在开发者本机完成验收，其他 Mac 的兼容性仍待验证；不支持 Intel Mac 或 Windows。
+**首次打开：**当前版本只有临时签名，未做 Developer ID 签名和苹果公证，macOS 可能阻止首次启动。确认来源与校验值后，请按[苹果官方说明](https://support.apple.com/zh-cn/102445)到「系统设置 → 隐私与安全」检查是否提供「仍要打开」。不要关闭系统安全保护。不支持 Intel Mac 或 Windows。
 
 ## 功能与平台
 
