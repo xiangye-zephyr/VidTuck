@@ -109,7 +109,7 @@ class DownloadLibrary extends EventEmitter {
     this.changed(); this.toast(count ? `已加入 ${count} 个链接` : '这些链接已在队列中'); void this.pump();
   }
   baseArgs(j) {
-    const args = ['--ignore-config', '--no-playlist', '--no-colors', '--socket-timeout', '20', '--retries', '2', '--extractor-retries', '1', '--ffmpeg-location', this.tools, '--js-runtimes', 'deno:' + this.tool('deno')];
+    const args = ['--ignore-config', '--encoding', 'utf-8', '--no-playlist', '--no-colors', '--socket-timeout', '20', '--retries', '2', '--extractor-retries', '1', '--ffmpeg-location', this.tools, '--js-runtimes', 'deno:' + this.tool('deno')];
     if (fs.existsSync(this.cookieURL(j.platform))) args.push('--cookies', this.cookieURL(j.platform));
     return args;
   }
