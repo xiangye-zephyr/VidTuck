@@ -13,6 +13,12 @@ async function run({ mainWindow, library, tools, root }) {
   assert(root, 'VIDTUCK_SMOKE_DIR is required'); fs.mkdirSync(root, { recursive: true });
   const bin = name => path.join(tools, name + (process.platform === 'win32' ? '.exe' : ''));
   const reports = [];
+  const commands = [];
+  const originalRunner = library.runner;
+  library.runner = (...args) => {
+    const command = originalRunner(...args);
+    return { ...command, promise: command.promise.then(result => { commands.push({ args: args[1], ...result }); return result; }) };
+  };
   for (const name of ['yt-dlp', 'ffmpeg', 'ffprobe', 'deno']) {
     const r = await runTool(bin(name), [name === 'ffmpeg' || name === 'ffprobe' ? '-version' : '--version'], { timeout: 30000 }).promise;
     assert.equal(r.code, 0, name + ': ' + r.stderr); reports.push({ tool: name, version: r.stdout.split(/\r?\n/)[0] });
@@ -54,6 +60,9 @@ async function run({ mainWindow, library, tools, root }) {
     library.remove(video.id); assert(fs.existsSync(video.file), 'Removing a job must retain the downloaded media');
     reports.push({ check: 'remove record retains original media', passed: true });
     fs.writeFileSync(path.join(root, 'report.json'), JSON.stringify({ platform: process.platform, arch: process.arch, packaged: process.resourcesPath.includes('resources'), reports }, null, 2));
-  } finally { server.close(); }
+  } catch (error) {
+    error.message += '\n' + JSON.stringify({ commands, jobs: library.state.jobs, files: fs.readdirSync(library.state.destination) }, null, 2);
+    throw error;
+  } finally { library.runner = originalRunner; server.close(); }
 }
 module.exports = { run };
