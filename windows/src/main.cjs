@@ -18,6 +18,7 @@ const uiURL = pathToFileURL(path.join(appRoot, 'ui', 'index.html')).href;
 const helperURL = pathToFileURL(path.join(__dirname, 'helper.html')).href;
 const send = (type, payload) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('vidtuck:message', { type, payload }); };
 function allowedPage(value) { const u = webURL(value); return !!u && u.protocol === 'https:' && platform(value) !== '其他'; }
+function allowedNavigation(value) { const u = webURL(value); return allowedPage(value) || !!u && u.protocol === 'https:' && u.hostname === 'accounts.google.com'; }
 function lockWebContents(wc) {
   wc.setWindowOpenHandler(() => ({ action: 'deny' }));
   wc.on('will-attach-webview', e => e.preventDefault());
@@ -58,19 +59,19 @@ function openHelper(url, jobID) {
   const address = () => { if (!win.isDestroyed()) win.webContents.send('vidtuck:message', { type: 'address', payload: view.webContents.getURL() }); };
   lockWebContents(win.webContents); lockWebContents(view.webContents);
   win.webContents.on('will-navigate', e => e.preventDefault());
-  const guard = (e, next) => { if (!allowedPage(next)) { e.preventDefault(); status('此链接不属于支持的平台，已停止跳转'); } };
+  const guard = (e, next) => { if (!allowedNavigation(next)) { e.preventDefault(); status('此链接不属于支持的平台，已停止跳转'); } };
   view.webContents.on('will-navigate', guard); view.webContents.on('will-redirect', guard);
-  view.webContents.setWindowOpenHandler(({ url }) => { if (allowedPage(url)) view.webContents.loadURL(url).catch(() => {}); return { action: 'deny' }; });
+  view.webContents.setWindowOpenHandler(({ url }) => { if (allowedNavigation(url)) view.webContents.loadURL(url).catch(() => {}); return { action: 'deny' }; });
   view.webContents.on('did-navigate', address); view.webContents.on('did-navigate-in-page', address);
   view.webContents.on('did-fail-load', (_e, code) => { if (code !== -3) status('页面加载未完成，请检查网络或重新打开'); });
   win.webContents.on('did-finish-load', () => { address(); status('登录或播放目标视频后，点击“读取此页”'); });
   const actions = async (event, message) => {
     if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url !== helperURL || !message || typeof message.action !== 'string') return;
     try {
-      if (message.action === 'helperGo') { if (allowedPage(message.url)) await view.webContents.loadURL(message.url); else status('请输入支持平台的 HTTPS 视频链接'); }
+      if (message.action === 'helperGo') { if (allowedNavigation(message.url)) await view.webContents.loadURL(message.url); else status('请输入支持平台的 HTTPS 视频链接'); }
       else if (message.action === 'helperBack' && view.webContents.navigationHistory.canGoBack()) view.webContents.navigationHistory.goBack();
       else if (message.action === 'helperRead') {
-        const page = view.webContents.getURL(); if (!allowedPage(page)) return;
+        const page = view.webContents.getURL(); if (!allowedPage(page)) { status('完成登录后，请返回目标视频网页，再点击读取此页'); return; }
         const p = platform(page); await exportCookies(p);
         let job = library.state.jobs.find(j => j.id === jobID);
         if (job && library.active?.id === job.id) { status('请先在主窗口暂停此任务，再读取网页'); return; }
