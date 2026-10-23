@@ -75,8 +75,8 @@ jobs:
                 const s = stages.get(j.id), elapsed=performance.now()-s.started;
                 s.state=j.state;
                 if (j.state==='queued' && s.parseMs===undefined) s.parseMs=elapsed;
-                if (j.state==='done') { s.totalMs=elapsed; s.fileSize=j.fileSize; }
-                if (j.state==='failed') { s.totalMs=elapsed; s.error=j.error; }
+                if (j.state==='done' && s.totalMs===undefined) { s.totalMs=elapsed; s.fileSize=j.fileSize; }
+                if (j.state==='failed' && s.totalMs===undefined) { s.totalMs=elapsed; s.error=j.error; }
               }
             };
             library.on('state', observer);
