@@ -1,0 +1,140 @@
+name: Windows released package performance
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-portable]
+    paths: ['.github/workflows/windows-release-check.yml']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci
+        working-directory: windows
+      - name: Verify and unpack published Windows package
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://github.com/xiangye-zephyr/VidTuck/releases/download/v0.3.0-beta.1/VidTuck-0.3.0-beta.1-Windows-x64.zip' -OutFile released.zip
+          $hash = (Get-FileHash released.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne '5653b485cc23851aa95a37d77dad93ec7482fb3dc6085af2017542bd0320951a') { throw 'Published package hash changed' }
+          Expand-Archive released.zip release-copy
+      - name: Add measurement hooks in an isolated copy
+        shell: pwsh
+        run: |
+          @'
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const asar = require('./windows/node_modules/@electron/asar');
+          const resource = path.resolve('release-copy/resources');
+          const archive = path.join(resource, 'app.asar');
+          const source = path.resolve('measured-app');
+          asar.extractAll(archive, source);
+          const main = path.join(source, 'src/main.cjs');
+          let text = fs.readFileSync(main, 'utf8');
+          const needle = 'await mainWindow.loadURL(uiURL);';
+          if (!text.includes(needle)) throw Error('Released entry point changed');
+          text = text.replace(needle, needle + ' global.__vidtuckUIReadyMs = Date.now() - Number(process.env.VIDTUCK_START_MS);');
+          fs.writeFileSync(main, text);
+          fs.renameSync(path.join(source, 'src/smoke.cjs'), path.join(source, 'src/smoke-original.cjs'));
+          fs.writeFileSync(path.join(source, 'src/smoke.cjs'), String.raw`
+          'use strict';
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const { performance } = require('node:perf_hooks');
+          const original = require('./smoke-original.cjs');
+          const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+          function stats(values) {
+            const a = [...values].sort((a,b) => a-b);
+            return a.length ? { samples: a.length, median: a[Math.floor(a.length/2)], p95: a[Math.min(a.length-1, Math.ceil(a.length*.95)-1)], max: a[a.length-1] } : null;
+          }
+          async function run(args) {
+            const { app, mainWindow, library, root } = args;
+            mainWindow.show();
+            const measurements = { provenance: 'Published ZIP SHA-256 verified; original download engine, UI, tools and preload retained. Only main-process timing marker and smoke wrapper added in isolated copy.', uiReadyMs: global.__vidtuckUIReadyMs, jobs: [] };
+            await mainWindow.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+            measurements.firstPaintMs = Date.now() - Number(process.env.VIDTUCK_START_MS);
+            await mainWindow.webContents.executeJavaScript('window.__bench = {renders:[],gaps:[],last:performance.now()}; const oldReceive = window.receive; window.receive = function(message) { const t = performance.now(); try { return oldReceive(message); } finally { if (message.type === "state") window.__bench.renders.push(performance.now()-t); } }; window.__bench.timer=setInterval(()=>{const t=performance.now();window.__bench.gaps.push(Math.max(0,t-window.__bench.last-20));window.__bench.last=t;},20);');
+            const ipc = [];
+            for (let i=0;i<20;i++) {
+              ipc.push(await mainWindow.webContents.executeJavaScript('new Promise((resolve,reject)=>{const t=performance.now();let active=true;const timer=setTimeout(()=>{active=false;reject(Error("IPC timeout"))},2000);window.vidtuck.onMessage(message=>{if(active&&message.type==="state"){active=false;clearTimeout(timer);resolve(performance.now()-t)}});window.vidtuck.send({action:"ready"});})'));
+            }
+            measurements.idleStateRoundTripMs = stats(ipc);
+            const stages = new Map();
+            const observer = state => {
+              for (const j of state.jobs) {
+                if (!stages.has(j.id)) stages.set(j.id, { id:j.id, platform:j.platform, mode:j.mode, started:performance.now(), state:j.state });
+                const s = stages.get(j.id), elapsed=performance.now()-s.started;
+                s.state=j.state;
+                if (j.state==='queued' && s.parseMs===undefined) s.parseMs=elapsed;
+                if (j.state==='done') { s.totalMs=elapsed; s.fileSize=j.fileSize; }
+                if (j.state==='failed') { s.totalMs=elapsed; s.error=j.error; }
+              }
+            };
+            library.on('state', observer);
+            const start=performance.now();
+            await original.run(args);
+            measurements.localVideoAndAudioSuiteMs=performance.now()-start;
+            if (process.env.VIDTUCK_PROBE_URL) {
+              library.state.mode='video';
+              const before=new Set(library.state.jobs.map(j=>j.id));
+              library.add(process.env.VIDTUCK_PROBE_URL);
+              const job=library.state.jobs.find(j=>!before.has(j.id));
+              if(!job) throw Error('Probe not queued');
+              const deadline=Date.now()+90000;
+              while(!['done','failed'].includes(job.state)&&Date.now()<deadline) await delay(100);
+              if(!['done','failed'].includes(job.state)) library.pause(job.id);
+              measurements.platformProbe={platform:job.platform,state:job.state,title:job.title,error:job.error,fileSize:job.fileSize,elapsedMs:performance.now()-stages.get(job.id).started,reason:job.state==='paused'?'90 second measurement deadline; task paused':undefined};
+              if(job.state==='done'){
+                const { runTool }=require('./core.cjs');
+                const probe=await runTool(library.tool('ffprobe'),['-v','error','-show_entries','stream=codec_type','-of','json',job.file]).promise;
+                measurements.platformProbe.mediaValid=probe.code===0&&JSON.parse(probe.stdout).streams.some(s=>s.codec_type==='video');
+              }
+            }
+            library.removeListener('state',observer);
+            measurements.jobs=[...stages.values()].map(({started,...values})=>values);
+            const rendering=await mainWindow.webContents.executeJavaScript('clearInterval(window.__bench.timer); ({renders:window.__bench.renders,gaps:window.__bench.gaps})');
+            measurements.renderDurationMs=stats(rendering.renders);
+            measurements.rendererEventLoopDelayMs=stats(rendering.gaps);
+            measurements.memory=app.getAppMetrics().map(p=>({type:p.type,workingSetMB:p.memory.workingSetSize/1024,peakWorkingSetMB:p.memory.peakWorkingSetSize/1024}));
+            await mainWindow.webContents.executeJavaScript('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+            await delay(100);
+            fs.writeFileSync(path.join(root,'measured-window.png'),(await mainWindow.webContents.capturePage()).toPNG());
+            fs.writeFileSync(path.join(root,'performance.json'),JSON.stringify(measurements,null,2));
+          }
+          module.exports={run};
+          `);
+          asar.createPackage(source, archive).then(() => console.log('Prepared isolated measurement copy'));
+          '@ | Set-Content -Encoding utf8 prepare-release-benchmark.cjs
+          node prepare-release-benchmark.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Measurement setup failed' }
+      - name: Measure three fresh Windows launches and supplied Douyin URL
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            $env:VIDTUCK_SMOKE_DIR = Join-Path $PWD "measurements/run-$i"
+            New-Item -ItemType Directory -Force $env:VIDTUCK_SMOKE_DIR | Out-Null
+            $env:VIDTUCK_PROBE_URL = if ($i -eq 1) { 'https://v.douyin.com/pjryNy8vMXw/' } else { '' }
+            $env:VIDTUCK_START_MS = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds().ToString()
+            $process = Start-Process -FilePath (Join-Path $PWD 'release-copy/VidTuck.exe') -ArgumentList '--vidtuck-smoke' -PassThru
+            if (-not $process.WaitForExit(210000)) { Stop-Process -Id $process.Id -Force; throw "Run $i timed out" }
+            if ($process.ExitCode -ne 0) { Get-Content "$env:VIDTUCK_SMOKE_DIR/FAILED.txt" -ErrorAction SilentlyContinue; throw "Run $i exit $($process.ExitCode)" }
+            Get-Content "$env:VIDTUCK_SMOKE_DIR/performance.json"
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-release-performance
+          path: |
+            measurements/**/performance.json
+            measurements/**/report.json
+            measurements/**/FAILED.txt
+            measurements/**/measured-window.png
