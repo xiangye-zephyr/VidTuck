@@ -2,13 +2,21 @@
 
 # VidTuck
 
-把视频链接收进口袋。面向 Apple Silicon Mac 的轻量视频下载工具，支持 YouTube、B站、抖音和小红书。
+把视频链接收进口袋。轻量视频下载工具，支持 YouTube、B站、抖音和小红书。
 
 **0.2.6 · macOS 15+ · M 系列芯片 · 中文界面**
 
 [下载 Mac 版](https://github.com/xiangye-zephyr/VidTuck/releases/latest) · [开发说明](docs/DEVELOPMENT.md) · [第三方组件](ThirdParty/NOTICE.md)
 
-## 安装与使用
+## Windows 免安装测试版
+
+[下载 Windows x64 测试版](https://github.com/xiangye-zephyr/VidTuck/releases/tag/v0.3.0-beta.1) · [Windows 使用与构建说明](windows/README.md)
+
+面向 Windows 10 22H2 / Windows 11 的 Intel、AMD 64 位电脑。下载 `VidTuck-0.3.0-beta.1-Windows-x64.zip`，右键“全部解压”，双击文件夹里的 `VidTuck.exe`。请保留整个文件夹。已内置下载引擎、FFmpeg、Deno 和桌面环境，无需另外安装 Python、Node 或 Chrome。
+
+当前为首个 Windows 测试版，未做代码签名；平台网站、网络和账号权限仍会影响下载。Windows 的功能与兼容性边界见专用说明。下面保留 Mac 版的安装与实现说明。
+
+## Mac 安装与使用
 
 1. 从 [Releases](https://github.com/xiangye-zephyr/VidTuck/releases) 下载 `VidTuck-0.2.6-macOS-arm64.zip`，解压后把 `VidTuck.app` 拖进「应用程序」。GitHub 自动生成的「Source code」压缩包是源码，不含可直接运行的应用。
 2. 在主窗口按 **⌘V** 粘贴视频链接或分享文案，也可拖入链接。默认自动解析、依次下载，一次最多添加 50 条。
@@ -17,7 +25,7 @@
 
 已内置 yt-dlp、Deno 和 FFmpeg。使用时无需安装 Codex、Python、Node、Homebrew，也无需运行服务器。
 
-**首次打开：**当前版本只有临时签名，未做 Developer ID 签名和苹果公证，macOS 可能阻止首次启动。确认来源与校验值后，请按[苹果官方说明](https://support.apple.com/zh-cn/102445)到「系统设置 → 隐私与安全」检查是否提供「仍要打开」。不要关闭系统安全保护。不支持 Intel Mac 或 Windows。
+**首次打开：**当前版本只有临时签名，未做 Developer ID 签名和苹果公证，macOS 可能阻止首次启动。确认来源与校验值后，请按[苹果官方说明](https://support.apple.com/zh-cn/102445)到「系统设置 → 隐私与安全」检查是否提供「仍要打开」。不要关闭系统安全保护。Mac 版不支持 Intel Mac；Windows 请使用上方的专用包。
 
 ## 功能与平台
 
