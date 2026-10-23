@@ -1,0 +1,61 @@
+{
+  "name": "vidtuck-windows",
+  "productName": "VidTuck",
+  "version": "0.3.0-beta.1",
+  "description": "VidTuck Windows desktop video downloader",
+  "author": "xiangye-zephyr",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "sync-ui": "node scripts/sync-ui.cjs",
+    "start": "npm run sync-ui && electron .",
+    "test": "node --test test/*.test.cjs",
+    "prepare-tools": "node scripts/prepare-tools.cjs",
+    "build": "npm run sync-ui && electron-builder --win zip --x64 --publish never"
+  },
+  "devDependencies": {
+    "7zip-bin": "5.2.0",
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.vidtuck.windows",
+    "productName": "VidTuck",
+    "asar": true,
+    "files": [
+      "src/**",
+      "ui/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "tools",
+        "to": "tools"
+      },
+      {
+        "from": "licenses",
+        "to": "licenses"
+      }
+    ],
+    "extraFiles": [
+      { "from": "README.md", "to": "Windows-README.md" },
+      { "from": "../LICENSE", "to": "LICENSE-VidTuck.txt" }
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "ui/AppIcon.png",
+      "signAndEditExecutable": false,
+      "artifactName": "VidTuck-${version}-Windows-x64.zip"
+    }
+  }
+}

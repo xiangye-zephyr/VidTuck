@@ -18,3 +18,10 @@ resolution-*.json
 download-temp/
 __pycache__/
 *.pyc
+windows/node_modules/
+windows/dist/
+windows/tools/
+windows/licenses/
+windows/.cache/
+windows/ui/
+windows/smoke-results/
