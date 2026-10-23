@@ -1,0 +1,91 @@
+name: Windows portable build
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-portable]
+    paths: ['windows/**', 'Resources/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths: ['windows/**', 'Resources/**', '.github/workflows/windows.yml']
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expand browser-uploaded source bundle if present
+        shell: pwsh
+        working-directory: .
+        run: |
+          if (Test-Path windows-source.tar.gz) {
+            tar -xzf windows-source.tar.gz
+            if ($LASTEXITCODE -ne 0) { throw 'Source extraction failed' }
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add windows .gitignore
+            git rm windows-source.tar.gz
+            git commit -m 'Expand Windows desktop sources and build configuration'
+            git push origin HEAD:codex/windows-portable
+          }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run prepare-tools
+      - run: npm run build -- -c.win.signAndEditExecutable=true -c.win.signExecutable=false
+      - name: Run packaged Windows executable smoke test
+        shell: pwsh
+        run: |
+          $env:VIDTUCK_SMOKE_DIR = Join-Path $PWD 'smoke-results'
+          New-Item -ItemType Directory -Force $env:VIDTUCK_SMOKE_DIR | Out-Null
+          $process = Start-Process -FilePath (Join-Path $PWD 'dist/win-unpacked/VidTuck.exe') -ArgumentList '--vidtuck-smoke' -PassThru
+          if (-not $process.WaitForExit(180000)) { Stop-Process -Id $process.Id -Force; throw 'Windows smoke test timed out' }
+          if ($process.ExitCode -ne 0) { Get-Content "$env:VIDTUCK_SMOKE_DIR/FAILED.txt" -ErrorAction SilentlyContinue; throw "Smoke test exit $($process.ExitCode)" }
+          Get-Content "$env:VIDTUCK_SMOKE_DIR/report.json"
+      - name: Hash portable package
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/*.zip | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content -Encoding ascii dist/SHA256SUMS.txt
+          Copy-Item README.md dist/Windows-README.md
+      - name: Publish Windows preview after packaged executable passes
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/windows-portable'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          @'
+          Windows 10 22H2 / Windows 11，Intel / AMD x64 免安装测试版。
+
+          下载 Windows-x64.zip，右键“全部解压”，打开文件夹双击 VidTuck.exe。保留整个文件夹，无需安装 Python、Node、FFmpeg 或 Chrome。
+
+          支持队列、暂停继续、画质选择、M4A 音频、历史记录和独立网页辅助登录。平台网站、网络与本人账号权限会影响实际可用性。
+
+          已在 GitHub Windows runner 启动打包后的 exe，验收自制测试视频下载、音视频轨道、M4A 导出、历史恢复与沙盒界面。尚未进行 Windows 10 实机和全部平台的完整兼容性测试。
+
+          此版本未做 Windows 代码签名，可能出现发布者未知提示；请核对 SHA256SUMS.txt，不要关闭系统安全保护。现有 Mac 发布保持不变。
+          '@ | Set-Content -Encoding utf8 release-notes.md
+          gh release view v0.3.0-beta.1 --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create v0.3.0-beta.1 --repo $env:GITHUB_REPOSITORY --target codex/windows-portable --title 'VidTuck 0.3.0-beta.1 · Windows x64' --prerelease --latest=false --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          }
+          gh release upload v0.3.0-beta.1 dist/*.zip dist/SHA256SUMS.txt dist/Windows-README.md --repo $env:GITHUB_REPOSITORY --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: VidTuck-Windows-x64
+          path: |
+            windows/dist/*.zip
+            windows/dist/SHA256SUMS.txt
+            windows/dist/Windows-README.md
+            windows/smoke-results/report.json
+            windows/smoke-results/FAILED.txt
+            windows/smoke-results/window.png
