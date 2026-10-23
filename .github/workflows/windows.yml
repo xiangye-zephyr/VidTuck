@@ -39,7 +39,10 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run prepare-tools
-      - run: npm run build -- -c.win.signAndEditExecutable=true -c.win.signExecutable=false
+      - name: Build Windows zip with app icon
+        run: |
+          node -e "const fs = require('node:fs'); const p = require('./package.json'); p.build.win.signAndEditExecutable = true; p.build.win.signExecutable = false; fs.writeFileSync('package.json', JSON.stringify(p, null, 2));"
+          npm run build
       - name: Run packaged Windows executable smoke test
         shell: pwsh
         run: |
